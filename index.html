@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Ironwood Crossing - Engine Skeleton</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #111;
+      color: #eee;
+      font-family: system-ui, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      height: 100vh;
+    }
+    #game-container {
+      margin-top: 16px;
+    }
+    canvas {
+      border: 3px solid #eee;
+      image-rendering: pixelated;
+      background: #222;
+    }
+  </style>
+</head>
+<body>
+  <h2>Ironwood Crossing - Engine Skeleton</h2>
+  <div id="game-container">
+    <canvas id="game" width="320" height="288"></canvas>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
