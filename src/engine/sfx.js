@@ -1,7 +1,7 @@
 // engine/sfx.js
 // Asset-based SFX using WebAudio (AudioBuffer) to avoid spawning many HTMLAudio/WebMediaPlayers.
 // Respects Settings SFX volume and degrades gracefully if assets fail to load.
-import { UI_SFX, STEP_SFX, WEAPON_SFX } from "../data/sfx_maps.js";
+import { UI_SFX, STEP_SFX, WEAPON_SFX, PLAYER_SFX } from "../data/sfx_maps.js";
 
 function clamp01(v){ const n=Number(v); return Number.isFinite(n)? Math.max(0, Math.min(1,n)):0; }
 
@@ -101,5 +101,12 @@ export class SfxManager {
   playWeapon(name){
     const file = WEAPON_SFX[name];
     this.playFile(file, { vol: 0.75 });
+  }
+
+  playPlayer(name){
+    const entry = PLAYER_SFX[name];
+    if (!entry) return;
+    const file = Array.isArray(entry) ? entry[Math.floor(Math.random()*entry.length)] : entry;
+    this.playFile(file, { vol: 0.8 });
   }
 }

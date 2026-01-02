@@ -1,3 +1,5 @@
+import { getBossIntro, getBossOutro } from "../boss_dialogue.js";
+
 export const region1Maps = {
   ironwood_town: {
     id: "ironwood_town",
@@ -35,16 +37,16 @@ if ((x === 17 && y === 2) || (x === 9 && y === 21) || (x === 12 && y === 9)) ret
         if (x === 6 && y === 4) return 6; // doorframe (walkable)
         return 5;
       }
-      // General Store (rectangular; door/exit at x=6,y=12)
-      if (x >= 4 && x <= 9 && y >= 10 && y <= 12) {
-        if (y === 10) return 9; // roof
-        if (y === 11) {
+      // General Store (rectangular; door/exit at x=6,y=14)
+      if (x >= 4 && x <= 9 && y >= 12 && y <= 14) {
+        if (y === 12) return 9; // roof
+        if (y === 13) {
           if (x === 4) return 10; // store sign
           if (x === 5 || x === 8) return 7; // windows
           return 5; // wall
         }
         // bottom row: door is walkable for the interior exit
-        if (x === 6 && y === 12) return 6; // doorframe (walkable)
+        if (x === 6 && y === 14) return 6; // doorframe (walkable)
         return 5;
       }
 
@@ -85,6 +87,82 @@ if ((x === 17 && y === 2) || (x === 9 && y === 21) || (x === 12 && y === 9)) ret
         return 5;
       }
 
+
+
+      // v1.16.1: Fenced-lot town authoring (Pokémon-style plots)
+      // Fence tiles (24-31) are authored in the building tileset and are SOLID by default (tile >= 4).
+      // Caretaker lot border (x 3..10, y 1..5), opening at (6,5)
+      if (x === 3 && y === 1) return 24;
+      if (x === 10 && y === 1) return 26;
+      if (x === 3 && y === 5) return 28;
+      if (x === 10 && y === 5) return 29;
+      if (y === 1 && x >= 4 && x <= 9) return 25;
+      if (y === 5 && x >= 4 && x <= 9 && x !== 6) return 25;
+      if (x === 3 && y >= 2 && y <= 4) return 27;
+      if (x === 10 && y >= 2 && y <= 4) return 27;
+
+      // General Store lot border (x 3..10, y 11..15), opening at (6,15)
+      if (x === 3 && y === 11) return 24;
+      if (x === 10 && y === 11) return 26;
+      if (x === 3 && y === 15) return 28;
+      if (x === 10 && y === 15) return 29;
+      if (y === 11 && x >= 4 && x <= 9) return 25;
+      if (y === 15 && x >= 4 && x <= 9 && x !== 6) return 25;
+      if (x === 3 && y >= 10 && y <= 12) return 27;
+      if (x === 10 && y >= 10 && y <= 12) return 27;
+
+      // Town Hall lot border (x 5..12, y 3..8), opening at (8,8)
+      if (x === 5 && y === 3) return 24;
+      if (x === 12 && y === 3) return 26;
+      if (x === 5 && y === 8) return 28;
+      if (x === 12 && y === 8) return 29;
+      if (y === 3 && x >= 6 && x <= 11) return 25;
+      if (y === 8 && x >= 6 && x <= 11 && x !== 8) return 25;
+      if (x === 5 && y >= 4 && y <= 7) return 27;
+      if (x === 12 && y >= 4 && y <= 7) return 27;
+
+      // Supply Shed lot border (x 20..27, y 9..13), opening at (23,13)
+      if (x === 20 && y === 9) return 24;
+      if (x === 27 && y === 9) return 26;
+      if (x === 20 && y === 13) return 28;
+      if (x === 27 && y === 13) return 29;
+      if (y === 9 && x >= 21 && x <= 26) return 25;
+      if (y === 13 && x >= 21 && x <= 26 && x !== 23) return 25;
+      if (x === 20 && y >= 10 && y <= 12) return 27;
+      if (x === 27 && y >= 10 && y <= 12) return 27;
+
+      // Inn lot border (x 20..27, y 15..19), opening at (23,19)
+      if (x === 20 && y === 15) return 24;
+      if (x === 27 && y === 15) return 26;
+      if (x === 20 && y === 19) return 28;
+      if (x === 27 && y === 19) return 29;
+      if (y === 15 && x >= 21 && x <= 26) return 25;
+      if (y === 19 && x >= 21 && x <= 26 && x !== 23) return 25;
+      if (x === 20 && y >= 16 && y <= 18) return 27;
+      if (x === 27 && y >= 16 && y <= 18) return 27;
+
+      // v1.16.0: Town path grammar normalization (Pokémon-style readability)
+      // Main south-to-center spine
+      if (x === 7 && y >= 9 && y <= 22) return 2;
+      // North spur from the northern exit to town center
+      if (x === 15 && y >= 1 && y <= 9) return 2;
+      if (y === 9 && x >= 7 && x <= 15) return 2;
+
+      // Store approach (3-wide apron)
+      if (y === 12 && x >= 5 && x <= 9) return 2;
+      if (y === 11 && x >= 6 && x <= 8) return 2;
+
+      // Town Hall approach (3-wide apron)
+      if (y === 7 && x >= 7 && x <= 9) return 2;
+      if (y === 8 && x >= 6 && x <= 8) return 2;
+
+      // Caretaker house approach
+      if (y === 4 && x >= 6 && x <= 7) return 2;
+
+      // Right-side house approach
+      if (y === 18 && x >= 22 && x <= 24) return 2;
+      if (y === 17 && x >= 21 && x <= 25) return 2;
+
 // Town exits render via exit-pad overlay; keep walkable tiles as grass.
       if (y === 22 && x === 7) return 0;
       if (y === 1 && x === 15) return 0;
@@ -94,7 +172,7 @@ if ((x === 17 && y === 2) || (x === 9 && y === 21) || (x === 12 && y === 9)) ret
     npcs: [
       {
         id: "elder",
-        x: 6,
+        x: 3,
         y: 6,
         spriteIndex: 0,
 
@@ -111,15 +189,41 @@ if ((x === 17 && y === 2) || (x === 9 && y === 21) || (x === 12 && y === 9)) ret
           if (state.flags?.quarryCleared) {
             game.setObjectiveDone("q1_quarry_rescue", "report_back");
             state.flags.chapter1_reportedBack = true;
+
+            // Narrative unlock: the Elder grants the Town Map after the Quarry is cleared.
+            // This gates access to the world map ("M") behind earned trust / knowledge.
+            if (!state.flags.hasTownMap) {
+              state.flags.hasTownMap = true;
+              try {
+                // Use pickup ceremony: subtle SFX + toast.
+                game._playPickupSfx({ id: "town_map", name: "Town Map", kind: "paper" });
+              } catch (_) {}
+              try { game._showToast("Received: Town Map"); } catch (_) {}
+            }
+
             // Chain the next step of Chapter 1
             if (!state.quest?.progress?.q2_crossroads?.started) {
               game.startQuest("q2_crossroads");
             }
           }
+
+          // Finale: after Deacon Vale is defeated, speaking to the Elder unlocks the end card.
+          if (state.flags?.finalBossDefeated) {
+            state.flags.endingEligible = true;
+          }
         },
         dialogue(state, game) {
           const rp = state?.returnPressure || {};
           const impatience = (rp.trustErosion || 0) + (rp.comfortDecay || 0);
+
+          if (state.flags.finalBossDefeated) {
+            return [
+              "It’s over. The pressure in the town’s air is gone.",
+              "Vale’s men will scatter when they hear the truth.",
+              "You didn’t win by luck. You won by returning.",
+              "Go on. Rest. Ironwood will try again."
+            ];
+          }
 
           if (state.flags.quarryCleared) {
             // AFTER quarry boss
@@ -153,7 +257,8 @@ if ((x === 17 && y === 2) || (x === 9 && y === 21) || (x === 12 && y === 9)) ret
 
       // Interiors
       { x: 6, y: 4, to: "ironwood_caretaker_house", spawnX: 7, spawnY: 9 },
-      { x: 6, y: 12, to: "ironwood_general_store", spawnX: 7, spawnY: 9 },
+      // General Store entrance (doorframe tile is at y=14 after the v1.16.1 downward shift)
+      { x: 6, y: 14, to: "ironwood_general_store", spawnX: 7, spawnY: 9 },
       { x: 8, y: 7, to: "ironwood_town_hall", spawnX: 7, spawnY: 9 },
       { x: 23, y: 12, to: "ironwood_supply_shed", spawnX: 7, spawnY: 9 },
       { x: 23, y: 18, to: "ironwood_inn", spawnX: 7, spawnY: 9 },
@@ -190,8 +295,41 @@ if ((x === 17 && y === 2) || (x === 9 && y === 21) || (x === 12 && y === 9)) ret
         x: 7,
         y: 21,
         lines: ["Trail Marker", "South: Forest Camp (South)"]
+      },
+      {
+        id: "boss_intro_deacon_vale",
+        type: "area",
+        x: 0,
+        y: 0,
+        w: 32,
+        h: 24,
+        once: false,
+        run: (s, game) => {
+          if (!s || !s.flags) return;
+          const bossId = "deacon_vale";
+          const introKey = `bossIntro_${bossId}`;
+          const outroKey = `bossOutro_${bossId}`;
+
+          const enemies = game._getEnemiesForCurrentMap();
+          const bossAlive = enemies.some(e => e && !e.dead && e.archetypeId === bossId);
+
+          // Intro fires only once, only if Vale is present (late-game condition).
+          if (bossAlive && !s.flags[introKey] && !s.dialogue.isActive()) {
+            s.flags[introKey] = true;
+            s.dialogue.startDialogue(getBossIntro(bossId));
+            return;
+          }
+
+          // Outro after defeat (once).
+          const bossDefeated = !!s.flags.finalBossDefeated && !bossAlive;
+          if (bossDefeated && !s.flags[outroKey] && !s.dialogue.isActive()) {
+            s.flags[outroKey] = true;
+            s.dialogue.startDialogue(getBossOutro(bossId));
+          }
+        }
       }
     ]
+
   },
 
   upper_forest_camp: {
@@ -387,16 +525,49 @@ if ((Math.abs(x - 16) + Math.abs(y - 8) <= 1) || (Math.abs(x - 9) + Math.abs(y -
     ],
     items: [
       {
-        id: "quarry_token",
+        id: "knife",
         x: 6,
         y: 9,
-        name: "Quarry Script Token",
-        description: "Old pay token, worn smooth by anxious fingers.",
-        kind: "quest",
+        name: "Knife",
+        description: "A working knife left in the dust. Improves melee damage.",
+        kind: "weapon",
         amount: 1
       }
     ],
-    triggers: []
+    triggers: [
+      {
+        id: "boss_intro_quarry_overseer",
+        type: "area",
+        x: 0,
+        y: 0,
+        w: 16,
+        h: 12,
+        once: false,
+        run: (s, game) => {
+          if (!s || !s.flags) return;
+          const bossId = "quarry_overseer";
+          const introKey = `bossIntro_${bossId}`;
+          const outroKey = `bossOutro_${bossId}`;
+
+          const enemies = game._getEnemiesForCurrentMap();
+          const bossAlive = enemies.some(e => e && !e.dead && e.archetypeId === bossId);
+
+          // On entry, fire intro once while boss is alive.
+          if (bossAlive && !s.flags[introKey] && !s.dialogue.isActive()) {
+            s.flags[introKey] = true;
+            s.dialogue.startDialogue(getBossIntro(bossId));
+            return;
+          }
+
+          // After defeat, fire outro once.
+          const bossDefeated = !!s.flags.quarryCleared && !bossAlive;
+          if (bossDefeated && !s.flags[outroKey] && !s.dialogue.isActive()) {
+            s.flags[outroKey] = true;
+            s.dialogue.startDialogue(getBossOutro(bossId));
+          }
+        }
+      }
+    ]
   },
 
   quarry_floor1: {
@@ -440,7 +611,40 @@ if ((Math.abs(x - 9) + Math.abs(y - 1) <= 1) || (Math.abs(x - 9) + Math.abs(y - 
       { x: 9, y: 14, to: "quarry_floor2", spawnX: 9, spawnY: 2 }
     ],
     items: [],
-    triggers: []
+    triggers: [
+      {
+        id: "boss_intro_quarry_overseer",
+        type: "area",
+        x: 0,
+        y: 0,
+        w: 16,
+        h: 12,
+        once: false,
+        run: (s, game) => {
+          if (!s || !s.flags) return;
+          const bossId = "quarry_overseer";
+          const introKey = `bossIntro_${bossId}`;
+          const outroKey = `bossOutro_${bossId}`;
+
+          const enemies = game._getEnemiesForCurrentMap();
+          const bossAlive = enemies.some(e => e && !e.dead && e.archetypeId === bossId);
+
+          // On entry, fire intro once while boss is alive.
+          if (bossAlive && !s.flags[introKey] && !s.dialogue.isActive()) {
+            s.flags[introKey] = true;
+            s.dialogue.startDialogue(getBossIntro(bossId));
+            return;
+          }
+
+          // After defeat, fire outro once.
+          const bossDefeated = !!s.flags.quarryCleared && !bossAlive;
+          if (bossDefeated && !s.flags[outroKey] && !s.dialogue.isActive()) {
+            s.flags[outroKey] = true;
+            s.dialogue.startDialogue(getBossOutro(bossId));
+          }
+        }
+      }
+    ]
   }
 ,
   ironwood_caretaker_house: {
@@ -468,7 +672,40 @@ if ((Math.abs(x - 9) + Math.abs(y - 1) <= 1) || (Math.abs(x - 9) + Math.abs(y - 
       { x: 7, y: 10, to: "ironwood_town", spawnX: 6, spawnY: 5 }
     ],
     items: [],
-    triggers: []
+    triggers: [
+      {
+        id: "boss_intro_quarry_overseer",
+        type: "area",
+        x: 0,
+        y: 0,
+        w: 16,
+        h: 12,
+        once: false,
+        run: (s, game) => {
+          if (!s || !s.flags) return;
+          const bossId = "quarry_overseer";
+          const introKey = `bossIntro_${bossId}`;
+          const outroKey = `bossOutro_${bossId}`;
+
+          const enemies = game._getEnemiesForCurrentMap();
+          const bossAlive = enemies.some(e => e && !e.dead && e.archetypeId === bossId);
+
+          // On entry, fire intro once while boss is alive.
+          if (bossAlive && !s.flags[introKey] && !s.dialogue.isActive()) {
+            s.flags[introKey] = true;
+            s.dialogue.startDialogue(getBossIntro(bossId));
+            return;
+          }
+
+          // After defeat, fire outro once.
+          const bossDefeated = !!s.flags.quarryCleared && !bossAlive;
+          if (bossDefeated && !s.flags[outroKey] && !s.dialogue.isActive()) {
+            s.flags[outroKey] = true;
+            s.dialogue.startDialogue(getBossOutro(bossId));
+          }
+        }
+      }
+    ]
   },
 
   ironwood_general_store: {
@@ -497,7 +734,40 @@ if ((Math.abs(x - 9) + Math.abs(y - 1) <= 1) || (Math.abs(x - 9) + Math.abs(y - 
       { x: 7, y: 10, to: "ironwood_town", spawnX: 6, spawnY: 13 }
     ],
     items: [],
-    triggers: []
+    triggers: [
+      {
+        id: "boss_intro_quarry_overseer",
+        type: "area",
+        x: 0,
+        y: 0,
+        w: 16,
+        h: 12,
+        once: false,
+        run: (s, game) => {
+          if (!s || !s.flags) return;
+          const bossId = "quarry_overseer";
+          const introKey = `bossIntro_${bossId}`;
+          const outroKey = `bossOutro_${bossId}`;
+
+          const enemies = game._getEnemiesForCurrentMap();
+          const bossAlive = enemies.some(e => e && !e.dead && e.archetypeId === bossId);
+
+          // On entry, fire intro once while boss is alive.
+          if (bossAlive && !s.flags[introKey] && !s.dialogue.isActive()) {
+            s.flags[introKey] = true;
+            s.dialogue.startDialogue(getBossIntro(bossId));
+            return;
+          }
+
+          // After defeat, fire outro once.
+          const bossDefeated = !!s.flags.quarryCleared && !bossAlive;
+          if (bossDefeated && !s.flags[outroKey] && !s.dialogue.isActive()) {
+            s.flags[outroKey] = true;
+            s.dialogue.startDialogue(getBossOutro(bossId));
+          }
+        }
+      }
+    ]
   },
 
 
@@ -650,7 +920,40 @@ if ((Math.abs(x - 9) + Math.abs(y - 1) <= 1) || (Math.abs(x - 9) + Math.abs(y - 
       { x: 9, y: 14, to: "quarry_boss_room", spawnX: 8, spawnY: 9 }
     ],
     items: [],
-    triggers: []
+    triggers: [
+      {
+        id: "boss_intro_quarry_overseer",
+        type: "area",
+        x: 0,
+        y: 0,
+        w: 16,
+        h: 12,
+        once: false,
+        run: (s, game) => {
+          if (!s || !s.flags) return;
+          const bossId = "quarry_overseer";
+          const introKey = `bossIntro_${bossId}`;
+          const outroKey = `bossOutro_${bossId}`;
+
+          const enemies = game._getEnemiesForCurrentMap();
+          const bossAlive = enemies.some(e => e && !e.dead && e.archetypeId === bossId);
+
+          // On entry, fire intro once while boss is alive.
+          if (bossAlive && !s.flags[introKey] && !s.dialogue.isActive()) {
+            s.flags[introKey] = true;
+            s.dialogue.startDialogue(getBossIntro(bossId));
+            return;
+          }
+
+          // After defeat, fire outro once.
+          const bossDefeated = !!s.flags.quarryCleared && !bossAlive;
+          if (bossDefeated && !s.flags[outroKey] && !s.dialogue.isActive()) {
+            s.flags[outroKey] = true;
+            s.dialogue.startDialogue(getBossOutro(bossId));
+          }
+        }
+      }
+    ]
   },
 
   quarry_boss_room: {
@@ -700,7 +1003,40 @@ if ((Math.abs(x - 9) + Math.abs(y - 1) <= 1) || (Math.abs(x - 9) + Math.abs(y - 
       { x: 8, y: 10, to: "quarry_floor2", spawnX: 9, spawnY: 13 }
     ],
     items: [],
-    triggers: []
+    triggers: [
+      {
+        id: "boss_intro_quarry_overseer",
+        type: "area",
+        x: 0,
+        y: 0,
+        w: 16,
+        h: 12,
+        once: false,
+        run: (s, game) => {
+          if (!s || !s.flags) return;
+          const bossId = "quarry_overseer";
+          const introKey = `bossIntro_${bossId}`;
+          const outroKey = `bossOutro_${bossId}`;
+
+          const enemies = game._getEnemiesForCurrentMap();
+          const bossAlive = enemies.some(e => e && !e.dead && e.archetypeId === bossId);
+
+          // On entry, fire intro once while boss is alive.
+          if (bossAlive && !s.flags[introKey] && !s.dialogue.isActive()) {
+            s.flags[introKey] = true;
+            s.dialogue.startDialogue(getBossIntro(bossId));
+            return;
+          }
+
+          // After defeat, fire outro once.
+          const bossDefeated = !!s.flags.quarryCleared && !bossAlive;
+          if (bossDefeated && !s.flags[outroKey] && !s.dialogue.isActive()) {
+            s.flags[outroKey] = true;
+            s.dialogue.startDialogue(getBossOutro(bossId));
+          }
+        }
+      }
+    ]
   },
 };
 

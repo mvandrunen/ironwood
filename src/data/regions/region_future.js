@@ -1,3 +1,5 @@
+import { getBossIntro, getBossOutro } from "../boss_dialogue.js";
+
 // Placeholder maps for future regions described in the world plan.
 // These let us plug in new content later without changing engine wiring.
 
@@ -78,7 +80,38 @@ export const regionFuture = {
     npcs: [],
     enemies: [],
     exits: [],
-    triggers: []
+    triggers: [
+      {
+        id: "boss_intro_vale_lieutenant",
+        type: "area",
+        x: 0,
+        y: 0,
+        w: 18,
+        h: 16,
+        once: false,
+        run: (s, game) => {
+          if (!s || !s.flags) return;
+          const bossId = "vale_lieutenant";
+          const introKey = `bossIntro_${bossId}`;
+          const outroKey = `bossOutro_${bossId}`;
+
+          const enemies = game._getEnemiesForCurrentMap();
+          const bossAlive = enemies.some(e => e && !e.dead && e.archetypeId === bossId);
+
+          if (bossAlive && !s.flags[introKey] && !s.dialogue.isActive()) {
+            s.flags[introKey] = true;
+            s.dialogue.startDialogue(getBossIntro(bossId));
+            return;
+          }
+
+          const bossDefeated = !!s.flags.checkpoint3_precipiceBossDefeated && !bossAlive;
+          if (bossDefeated && !s.flags[outroKey] && !s.dialogue.isActive()) {
+            s.flags[outroKey] = true;
+            s.dialogue.startDialogue(getBossOutro(bossId));
+          }
+        }
+      }
+    ]
   },
   ursa_bluffs: {
     id: "ursa_bluffs",

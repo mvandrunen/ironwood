@@ -71,6 +71,18 @@ export class DialogueSystem {
       console.error(e);
     }
 
+    // Some choices should immediately close the dialogue without additional text.
+    // Used for shop "Cancel"/"Leave" options so the player can back out cleanly.
+    if (opt && opt.close === true) {
+      this.active = false;
+      this.lines = [];
+      this.index = 0;
+      this.choiceIndex = 0;
+      this._charCount = 0;
+      this._charAccMs = 0;
+      return true;
+    }
+
     // Replace the choice line with its prompt (for pacing) then inject follow-up lines.
     const follow = Array.isArray(opt.after) ? opt.after : (opt.after ? [String(opt.after)] : []);
     const prompt = String(cur.prompt || "");
@@ -191,12 +203,60 @@ export class DialogueSystem {
 
       // Options
       ty += 4;
-      opts.slice(0, 3).forEach((opt, i) => {
-        const label = String(opt?.label || "");
-        const prefix = (i === this.choiceIndex) ? "> " : "  ";
+      // Options
+      ty += 4;
+
+      // Render up to 4 options. If a Cancel/Leave option exists, keep it pinned to the bottom
+      // so shopkeeper menus always show a way out.
+      const MAX_VISIBLE = 4;
+      const labelOf = (o) => String(o?.label || "");
+      const isCancel = (o) => /^(\s*)(cancel|leave|exit|back)(\s*)$/i.test(labelOf(o));
+      const cancelIdx = opts.findIndex(isCancel);
+
+      let display = []; // { opt, idx }[]
+      let showUp = false;
+      let showDown = false;
+
+      if (opts.length <= MAX_VISIBLE) {
+        display = opts.map((opt, idx) => ({ opt, idx }));
+      } else if (cancelIdx >= 0) {
+        const others = opts.map((opt, idx) => ({ opt, idx })).filter((x) => x.idx !== cancelIdx);
+        const V = MAX_VISIBLE - 1;
+
+        // If Cancel is selected, keep window at the end; otherwise center-ish around selection.
+        const selInOthers = (this.choiceIndex === cancelIdx)
+          ? Math.max(0, others.length - 1)
+          : Math.max(0, others.findIndex((x) => x.idx === this.choiceIndex));
+
+        const maxStart = Math.max(0, others.length - V);
+        const start = Math.min(maxStart, Math.max(0, selInOthers - (V - 1)));
+        display = others.slice(start, start + V);
+        display.push({ opt: opts[cancelIdx], idx: cancelIdx });
+
+        showUp = start > 0;
+        showDown = (start + V) < others.length;
+      } else {
+        const V = MAX_VISIBLE;
+        const maxStart = Math.max(0, opts.length - V);
+        const start = Math.min(maxStart, Math.max(0, this.choiceIndex - (V - 1)));
+        display = opts.slice(start, start + V).map((opt, idx) => ({ opt, idx: start + idx }));
+        showUp = start > 0;
+        showDown = (start + V) < opts.length;
+      }
+
+      // Up/Down indicators when scrolling is possible
+      if (showUp) ctx.fillText("▲", bx + bw - 16, ty);
+
+      display.forEach(({ opt, idx }) => {
+        const label = labelOf(opt);
+        const prefix = (idx === this.choiceIndex) ? "> " : "  ";
         ctx.fillText(prefix + label, bx + 8, ty);
         ty += lineHeight;
       });
+
+      if (showDown) ctx.fillText("▼", bx + bw - 16, ty - 2);
+
+      return;
 
       return;
     }
@@ -317,5 +377,4 @@ function wrapText(text, maxWidth, ctx) {
   if (line) lines.push(line);
   return lines.length ? lines : [""];
 }
-
 

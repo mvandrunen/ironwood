@@ -70,6 +70,17 @@ if (nearBack || nearFwd) return 2;
     );
     if (onTrail) return 2;
 
+    // Forest richness pass (v1.16.3): add authored tree/bush clusters away from the trail,
+    // while keeping the route readable and the entrances clean.
+    if (biome === "forest" && !nearBack && !nearFwd) {
+      const interior = (x > 1 && y > 1 && x < w - 2 && y < h - 2);
+      const offTrail = !onTrail;
+      if (interior && offTrail) {
+        // sparse clusters
+        if ((x % 5 === 0 && y % 4 === 0) || ((x + y) % 9 === 0 && x !== midx && y !== midy)) return 1;
+      }
+    }
+
     // Light obstruction pockets away from the trail (keeps fights from stacking on the entry tile)
     if ((x === 4 && y >= 4 && y <= 6) || (x === 16 && y >= 10 && y <= 12)) return 1;
     return 0;

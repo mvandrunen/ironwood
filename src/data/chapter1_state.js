@@ -345,8 +345,8 @@ export function applyChapter1Reactivity(baseMap, state) {
                     ]
                   },
                   {
-                    label: "Leave",
-                    after: ["Suit yourself."]
+                    label: "Cancel",
+                    close: true
                   }
                 ]
               }
@@ -450,7 +450,7 @@ export function applyChapter1Reactivity(baseMap, state) {
                       "The blade is plain, honest. \"Don’t swing it angry. Swing it clean.\""
                     ]
                   },
-                  { label: "Leave", onChoose() {} }
+                  { label: "Cancel", close: true }
                 ]
               }
             ];

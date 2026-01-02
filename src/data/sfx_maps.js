@@ -20,3 +20,6 @@ export const WEAPON_SFX = {
   pistol: "pistol_fire.wav",
   rifle: "rifle_fire.wav",
 };
+export const PLAYER_SFX = {
+  hit: ["player_hit_1.wav", "player_hit_2.wav"],
+};

@@ -1,5 +1,6 @@
 // src/data/regions/region2.js
 import { getReturnPressureTier } from "../../systems/return_pressure.js";
+import { getBossIntro, getBossOutro } from "../boss_dialogue.js";
 // Region 2: Frontier chain (Junction → Ursa → River Road → Fishing / Mach → Highlands → Pass)
 //
 // Drop-in notes:
@@ -121,6 +122,15 @@ const ironwood_junction = {
       if ((x === 12 && y === 2) || (x === 19 && y === 8) || (x === 12 && y === 15) || (x === 10 && y === 8)) return 3;
 
 
+      // v1.16.0: Junction flow grammar normalization (clear spine + forks)
+      // Main vertical spine
+      if (x === 11 && y >= 1 && y <= 16) return 2;
+      // Main horizontal fork
+      if (y === 8 && x >= 1 && x <= 20) return 2;
+      // 3-wide aprons at exits
+      if ((y === 2 && x >= 10 && x <= 12) || (y === 14 && x >= 10 && x <= 12)) return 2;
+      if ((x === 2 && y >= 7 && y <= 9) || (x === 19 && y >= 7 && y <= 9)) return 2;
+
       // Light “rail line” obstacle suggestion (kept tight so it does not dominate the town).
       // Make it read as *unwalkable* (hedge wall), with a single obvious crossing.
       if ((y === 9 || y === 10) && x >= 6 && x <= 16) {
@@ -132,6 +142,17 @@ const ironwood_junction = {
       // sign tiles (purely visual; triggers handle interaction)
       if (x === 3 && y === 4) return 3;
       if (x === 5 && y === 10) return 3;
+
+      // v1.16.1: Fenced depot plot (authoring punctuation)
+      // Plot border (x 2..10, y 3..9), opening at (6,9) toward the main spine
+      if (x === 2 && y === 3) return 24;
+      if (x === 10 && y === 3) return 26;
+      if (x === 2 && y === 9) return 28;
+      if (x === 10 && y === 9) return 29;
+      if (y === 3 && x >= 3 && x <= 9) return 25;
+      if (y === 9 && x >= 3 && x <= 9 && x !== 6) return 25;
+      if (x === 2 && y >= 4 && y <= 8) return 27;
+      if (x === 10 && y >= 4 && y <= 8) return 27;
 
       // rail depot exterior (rectangular, Pokémon-like silhouette)
       // footprint: x 3..9, y 4..8
@@ -475,6 +496,39 @@ const ursa_bluffs = {
       }
     }
 ]
+  ,
+  triggers: [
+    {
+      id: "boss_intro_bluff_warden",
+      type: "area",
+      x: 0,
+      y: 0,
+      w: 22,
+      h: 18,
+      once: false,
+      run: (s, game) => {
+        if (!s || !s.flags) return;
+        const bossId = "bluff_warden";
+        const introKey = `bossIntro_${bossId}`;
+        const outroKey = `bossOutro_${bossId}`;
+
+        const enemies = game._getEnemiesForCurrentMap();
+        const bossAlive = enemies.some(e => e && !e.dead && e.archetypeId === bossId);
+
+        if (bossAlive && !s.flags[introKey] && !s.dialogue.isActive()) {
+          s.flags[introKey] = true;
+          s.dialogue.startDialogue(getBossIntro(bossId));
+          return;
+        }
+
+        const bossDefeated = !!s.flags.checkpoint2_ursaBossDefeated && !bossAlive;
+        if (bossDefeated && !s.flags[outroKey] && !s.dialogue.isActive()) {
+          s.flags[outroKey] = true;
+          s.dialogue.startDialogue(getBossOutro(bossId));
+        }
+      }
+    }
+  ]
 };
 
 // River Road (provided under two ids to prevent wiring mismatches)

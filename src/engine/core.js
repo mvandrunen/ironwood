@@ -25,7 +25,7 @@ export const VIEW_TILES_W = 16;
 export const VIEW_TILES_H = 12;
 export const TILE_SIZE = 32;
 
-export const BUILD_VERSION = "v1.15.7-ko-ui-npc-sprite";
+export const BUILD_VERSION = "v1.17.1-titlecard-hotfix1";
 
 
 const ITEM_ICON_INDEX = {
@@ -80,7 +80,8 @@ const CREDITS_LINES = [
 function createInitialState() {
   return {
     currentMapId: "ironwood_town",
-    player: { x: 6, y: 8, hp: 20, maxHp: 20, facing: "down", iFramesMs: 0 },
+    // Combat baseline: start at 12 HP.
+    player: { x: 6, y: 8, hp: 12, maxHp: 12, facing: "down", iFramesMs: 0 },
     camera: { x: 0, y: 0, width: VIEW_TILES_W, height: VIEW_TILES_H },
     keys: {},
     dialogue: new DialogueSystem(),
@@ -186,6 +187,12 @@ const INVENTORY_ID_META = {
     kind: "weapon",
     name: "Saber",
     description: "A cavalry blade. Improves melee damage.",
+  },
+  knife: {
+    category: "Weapons",
+    kind: "weapon",
+    name: "Knife",
+    description: "A simple working knife. Improves melee damage.",
   },
   bullet: {
     category: "Supplies",
@@ -433,7 +440,10 @@ export class Game {
       initialVolume: this.state.settings?.musicVolume ?? 0.75,
     });
 
-    // Ambient beds (HTMLAudio loops; crossfades; routed by map)
+    
+    // Audio Identity Pass: remove background music entirely (keep SFX/ambience).
+    this._music.setEnabled(false);
+// Ambient beds (HTMLAudio loops; crossfades; routed by map)
     this._ambient = new AmbientManager({
       basePath: "assets/ambience/",
       initialVolume: (this.state.settings?.sfxVolume ?? 0.85) * 0.7,
@@ -692,8 +702,10 @@ handleKeyDown(e) {
     const onTitle = s.ui.screen === "title";
     const onPause = s.ui.screen === "pause";
     const onConfirm = s.ui.screen === "confirm_new";
+    const onIntroCard = s.ui.screen === "intro_card";
     const onControlsCard = s.ui.screen === "controls_card";
     const onKOCard = s.ui.screen === "ko_card";
+    const onEndingCard = s.ui.screen === "ending_card";
     const onCredits = s.ui.screen === "credits";
     const onSettings = s.ui.screen === "settings";
 
@@ -715,6 +727,34 @@ handleKeyDown(e) {
         this._enterTitle();
         return true;
       }
+    }
+
+    // Intro Card: shown before Controls when starting a new game
+    if (onIntroCard) {
+      if (key === "Escape" || key === "Backspace") {
+        e.preventDefault();
+        this._enterTitle();
+        return true;
+      }
+      if (key === "Enter" || key === "e" || key === "E") {
+        e.preventDefault();
+        // Advance to controls, preserving the pending start action.
+        s.ui.screen = "controls_card";
+        s.ui.controlsAction = s.ui.introAction || "new";
+        s.ui.introAction = "";
+        return true;
+      }
+      return true;
+    }
+
+    // Ending Card: final summary after the last boss + Elder wrap-up
+    if (onEndingCard) {
+      if (key === "Enter" || key === "e" || key === "E" || key === "Escape" || key === "Backspace") {
+        e.preventDefault();
+        this._enterTitle();
+        return true;
+      }
+      return true;
     }
 
     // Controls Card: shown after Start/Continue before entering gameplay
@@ -740,6 +780,36 @@ handleKeyDown(e) {
         }
         // default: new game (no overwrite)
         this._startNewGame(false);
+        return true;
+      }
+      return true;
+    }
+
+    // Intro Card: shown before Controls when starting a NEW game.
+    if (onIntroCard) {
+      if (key === "Escape" || key === "Backspace") {
+        e.preventDefault();
+        this._enterTitle();
+        return true;
+      }
+      if (key === "Enter" || key === "e" || key === "E") {
+        e.preventDefault();
+        // Chain into controls, preserving the pending action.
+        const action = s.ui.introAction || "new";
+        s.ui.introAction = "";
+        s.ui.screen = "controls_card";
+        s.ui.controlsAction = action;
+        return true;
+      }
+      return true;
+    }
+
+    // Ending card: shown after the final boss is defeated and the player reports back to the Elder.
+    if (onEndingCard) {
+      if (key === "Enter" || key === "e" || key === "E" || key === "Escape" || key === "Backspace") {
+        e.preventDefault();
+        // Return to title (keeps save intact; player can continue exploring if they wish).
+        this._enterTitle();
         return true;
       }
       return true;
@@ -816,8 +886,8 @@ handleKeyDown(e) {
             s.ui.screen = "confirm_new";
             s.ui.confirmIndex = 1; // default to "No"
           } else {
-            s.ui.screen = "controls_card";
-            s.ui.controlsAction = "new";
+            s.ui.screen = "intro_card";
+            s.ui.introAction = "new";
           }
           return true;
         }
@@ -862,8 +932,8 @@ handleKeyDown(e) {
         e.preventDefault();
         const choice = items[s.ui.confirmIndex]?.id;
         if (choice === "yes") {
-          s.ui.screen = "controls_card";
-          s.ui.controlsAction = "new_overwrite";
+          s.ui.screen = "intro_card";
+          s.ui.introAction = "new_overwrite";
         } else {
           this._enterTitle();
         }
@@ -987,6 +1057,13 @@ handleKeyDown(e) {
   // World map toggle
   if (key === "m" || key === "M") {
     e.preventDefault();
+    // Gate world map behind receiving the Town Map (earned trust / knowledge).
+    // Unlock is granted by the Town Elder after the Quarry is cleared.
+    const hasTownMap = !!(s.flags && s.flags.hasTownMap);
+    if (!hasTownMap) {
+      this._showToast("You don't have a map.");
+      return true;
+    }
     s.worldMapOpen = !s.worldMapOpen;
     if (s.worldMapOpen) this.syncWorldMapCursorToCurrent();
     return true;
@@ -1446,7 +1523,8 @@ _getPauseMenuItems() {
     const fixed = this._findNearestOpenTile(dest, ret?.x ?? dest.spawnX, ret?.y ?? dest.spawnY);
     s.player.x = fixed.x;
     s.player.y = fixed.y;
-    s.player.hp = 1;
+    // Respawn rule: return to 8 HP regardless of max HP (capped if max is below 8).
+    s.player.hp = Math.min((s.player.maxHp || 8), 8);
 
     // Brief feedback after KO (kept subtle; the card already did the heavy lifting).
     s.message = "You come to, shaken but alive.";
@@ -1613,6 +1691,8 @@ _getPauseMenuItems() {
 attack() {
   const s = this.state;
   if (s.dialogue.isActive()) return;
+  // Attack animation window (sprite swap)
+  s.player.attackAnimMs = 180;
   if (this._sfxAssets) this._sfxAssets.playWeapon("blade");
 
   const map = this.currentMap;
@@ -1634,8 +1714,16 @@ attack() {
     if (e.dead) continue;
     if (e.x === tx && e.y === ty) {
       const arch = ENEMY_ARCHETYPES?.[e.archetypeId];
-      const hasSaber = (Array.isArray(s.inventory) ? s.inventory : []).some(it => it && it.id === "saber");
-      const dmg = hasSaber ? 2 : 1; // baseline player damage for Chapter 1
+      const inv = (Array.isArray(s.inventory) ? s.inventory : []);
+      const hasKnife = inv.some(it => it && it.id === "knife");
+      const hasSaber = inv.some(it => it && it.id === "saber");
+      // Weapon ladder:
+      // - base: 1
+      // - knife: +1
+      // - saber: +2 (stacks above knife)
+      let dmg = 1;
+      if (hasKnife) dmg += 1;
+      if (hasSaber) dmg += 2;
       e.hp = Math.max(0, (e.hp ?? (arch?.hpMax ?? 1)) - dmg);
       e.hitFlash = 6;
       e.state = e.state === "dead" ? "dead" : "hitstun";
@@ -1763,6 +1851,10 @@ shoot() {
 
     s.player.x = nx;
     s.player.y = ny;
+
+    // Auto-pickup: stepping onto an item collects it immediately.
+    // This keeps the moment-to-moment flow tight and removes the need to "face" the item.
+    this.pickupItemAt(map, nx, ny);
 
     if (this._sfxAssets) this._sfxAssets.playStep(this._surfaceForStep(map));
 
@@ -1953,9 +2045,15 @@ shoot() {
   // Simple i-frames so enemies can't "machine-gun" the player on contact.
   if (s.player.iFramesMs > 0) return;
 
+  const prevHp = s.player.hp;
   s.player.hp = Math.max(0, s.player.hp - amount);
   s.hitFlash = 6;
   s.player.iFramesMs = 550;
+
+  // SFX: player hit feedback (no music; preserve world pressure through sound).
+  if (this._sfxAssets && s.player.hp < prevHp) {
+    try { this._sfxAssets.playPlayer("hit"); } catch(_) {}
+  }
 
   if (s.player.hp === 0) {
     this.handleKO();
@@ -2116,10 +2214,12 @@ _grantDropItem(itemId) {
   // Heart Container: immediate max HP increase (does not clutter inventory).
   if (id === "heart_container") {
     const prev = s.player.maxHp || 5;
-    s.player.maxHp = prev + 1;
-    s.player.hp = Math.min(s.player.maxHp, (s.player.hp || s.player.maxHp) + 1);
+    // Boss progression: +4 max health per boss.
+    s.player.maxHp = prev + 4;
+    // Heal a bit on upgrade, but do not force-full-heal.
+    s.player.hp = Math.min(s.player.maxHp, (s.player.hp || s.player.maxHp) + 4);
     s.message = "Found a Heart. Max health increased!";
-    this._showToast("Max HP +1");
+    this._showToast("Max HP +4");
     return;
   }
 
@@ -2192,6 +2292,7 @@ _spawnProjectile(fromX, fromY, dirX, dirY, spec) {
     remaining: spec?.maxRangeTiles ?? 6,
     damage: spec?.damage ?? 3,
     hitStunMs: spec?.hitStunMs ?? 120,
+    owner: spec?.owner ?? "enemy",
     alive: true,
   });
 }
@@ -2431,6 +2532,20 @@ _updateEnemies(dt) {
     // Dialogue update
     s.dialogue.update(dt);
 
+    // Endgame: after the final boss is defeated, the ending card is shown
+    // once the player speaks with the Elder and the dialogue concludes.
+    if (
+      !s.dialogue.isActive() &&
+      s.flags?.finalBossDefeated &&
+      s.flags?.endingEligible &&
+      !s.flags?.endingShown
+    ) {
+      s.flags.endingShown = true;
+      if (!s.ui) s.ui = {};
+      s.ui.screen = "ending_card";
+      // keep the player in the world; no forced reset.
+    }
+
     // Movement cooldown (avoids “sliding” too fast)
     const STEP_DELAY = 220;
     this._moveCooldown -= dt;
@@ -2529,12 +2644,24 @@ if (this._moveCooldown <= 0 && !s.dialogue.isActive()) {
     // decrement player i-frames even when no enemies are present
     if (s.player.iFramesMs > 0) s.player.iFramesMs = Math.max(0, s.player.iFramesMs - dt);
 
+    // decrement attack animation timer
+    if (s.player.attackAnimMs > 0) s.player.attackAnimMs = Math.max(0, s.player.attackAnimMs - dt);
+
+// Environmental triggers (data-driven reactivity; no UI)
+// Run these before combat so authored encounters (boss conversations) can safely fire.
+this._processMapTriggers(map);
+
+// When dialogue is active, freeze gameplay simulation.
+// This prevents bosses/enemies from attacking during authored conversations.
+if (s.dialogue.isActive()) {
+  this._autosave(dt);
+  return;
+}
+
 // Combat systems (Quarry-only enemies)
 this._updateProjectiles(dt);
 this._updateEnemies(dt);
 
-    // Environmental triggers (data-driven reactivity; no UI)
-    this._processMapTriggers(map);
 
 // Camera follow, clamped to map
     const cam = s.camera;
@@ -2985,6 +3112,62 @@ if (s.ui?.screen && s.ui.screen !== "play") {
     ctx.fillStyle = "rgba(255,255,255,0.6)";
     ctx.textAlign = "left";
     ctx.fillText("Enter/E: Continue   Esc: Back", 16, this.canvas.height - 24);
+    return;
+  }
+
+  // Intro card (shown before Controls when starting a new game)
+  if (s.ui.screen === "intro_card") {
+    drawCentered("Prologue", 30, "#ffffff");
+    ctx.font = "11px monospace";
+    ctx.textAlign = "left";
+    ctx.fillStyle = "rgba(255,255,255,0.88)";
+    const startX = 28;
+    let y = 62;
+        const lines = [
+      "During the war of 1846, many left Ironwood to protect it.",
+      "When they returned, they found their homes claimed by those who stayed.",
+      "",
+      "You come back to a town that no longer knows your name \u2014",
+      "and a road that will test whether you still deserve it.",
+      "",
+      "Walk. Listen. Do the work in front of you.",
+      "Return is a choice.",
+    ];
+    for (const line of lines) {
+      ctx.fillText(line, startX, y);
+      y += 16;
+    }
+    ctx.font = "10px monospace";
+    ctx.fillStyle = "rgba(255,255,255,0.6)";
+    ctx.textAlign = "left";
+    ctx.fillText("Enter/E: Continue   Esc: Back", 16, this.canvas.height - 24);
+    return;
+  }
+
+  // Ending card (shown after final boss + report to Elder)
+  if (s.ui.screen === "ending_card") {
+    drawCentered("Epilogue", 30, "#ffffff");
+    ctx.font = "11px monospace";
+    ctx.textAlign = "left";
+    ctx.fillStyle = "rgba(255,255,255,0.88)";
+    const startX = 28;
+    let y = 62;
+    const lines = [
+      "Deacon Vale is gone.",
+      "",
+      "Ironwood gets to breathe — not because it was saved by fate,",
+      "but because someone chose to return and finish the job.",
+      "",
+      "Thanks for playing."
+    ];
+    for (const line of lines) {
+      ctx.fillText(line, startX, y);
+      y += 16;
+    }
+    ctx.font = "10px monospace";
+    ctx.fillStyle = "rgba(255,255,255,0.6)";
+    ctx.textAlign = "left";
+    ctx.fillText("Enter/E: Return to Title", 16, this.canvas.height - 24);
     return;
   }
 
@@ -3439,18 +3622,20 @@ if (s.ui?.screen && s.ui.screen !== "play") {
   }
 });
 
-    // Player (sprite sheet: 3 cols [idle, walk1, walk2] x 4 rows [down,right,left,up], 16x24 frames)
+    // Player (sprite sheet: 3 cols [idle, walk1, walk2] x 8 rows [move: down,right,left,up | attack: down,right,left,up], 16x24 frames)
     const px = (s.player.x - cam.x) * TILE_SIZE;
     const py = (s.player.y - cam.y) * TILE_SIZE;
     const ps = this.assets.sprites.player;
     const hasPlayer = !!(ps && ps.complete && ps.naturalWidth);
 
     if (hasPlayer) {
-      // Sheet rows: down (0), right (1), left (2), up (3)
-      const dirRow = ({ down: 0, right: 1, left: 2, up: 3 })[s.player.facing] ?? 0;
+      // Sheet rows: move = down(0), right(1), left(2), up(3); attack = down(4), right(5), left(6), up(7)
+      const baseRow = ({ down: 0, right: 1, left: 2, up: 3 })[s.player.facing] ?? 0;
+      const isAttacking = (s.player.attackAnimMs || 0) > 0;
+      const dirRow = isAttacking ? (baseRow + 4) : baseRow;
       const moving = !!(s.keys["ArrowUp"] || s.keys["ArrowDown"] || s.keys["ArrowLeft"] || s.keys["ArrowRight"]);
       const t = Math.floor((this.lastTime || 0) / 180) % 2;
-      const col = moving ? (t ? 1 : 2) : 0;
+      const col = isAttacking ? 0 : (moving ? (t ? 1 : 2) : 0);
       const srcW = 16;
       const srcH = 24;
       const dstW = TILE_SIZE;
