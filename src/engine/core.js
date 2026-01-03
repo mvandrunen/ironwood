@@ -25,19 +25,21 @@ export const VIEW_TILES_W = 16;
 export const VIEW_TILES_H = 12;
 export const TILE_SIZE = 32;
 
-export const BUILD_VERSION = "v1.17.1-titlecard-hotfix1";
+export const BUILD_VERSION = "v1.17.10-syntaxfix";
 
 
 const ITEM_ICON_INDEX = {
   field_tonic: 0,
   quarry_token: 1,
-  pickaxe: 2,
+  pickaxe: 10,
   pay_script: 3,
   bluff_waystone: 4,
   rail_pass_stub: 5,
   salted_fish: 6,
   rope_coil: 7,
   mach_ranch_accord: 8,
+  knife: 9,
+  pistol: 2,
 };
 
 function getItemIconIndex(id) {
@@ -104,6 +106,10 @@ function createInitialState() {
     inventory: [],
     inventoryOpen: false,
     inventoryIndex: 0,
+
+    // Equipped quick-slots (Link's Awakening–style): item ids assigned to Z / X
+    equipZ: null,
+    equipX: null,
 
     // World map overlay
     worldMapOpen: false,
@@ -292,6 +298,79 @@ function buildInventoryDisplay(inventory) {
   return {
     items: enriched,
     count: enriched.length,
+  };
+}
+
+// Items that can be assigned to Z/X live on the RIGHT panel of the inventory.
+// Rule of thumb: active-use tools/weapons + select consumables. Papers/keys/coins/ammo stay LEFT.
+function isQuickAssignableItem(item) {
+  if (!item) return false;
+  const id = String(item.id || "").toLowerCase();
+
+  // Explicit non-assignables (economy, ammo, tokens, papers)
+  const deny = new Set([
+    "small_coin","coin_bundle","ammo_scrap","bullet","bullets",
+    "quarry_token","pay_script","rail_pass_stub","bluff_waystone","mach_ranch_accord",
+    "heart_container",
+    "field_tonic",
+  ]);
+  if (deny.has(id)) return false;
+
+  const kind = String(item.kind || "").toLowerCase();
+  if (kind === "weapon" || kind === "tool") return true;
+
+  // Healing / usable supplies (conservative)
+  if (kind === "healing" || kind === "consumable") return true;
+  if (id.includes("tonic") || id.includes("potion") || id.includes("fish")) return true;
+
+  return false;
+}
+
+// Inventory panel model for the Link's Awakening–style split:
+// LEFT = non-assignables, RIGHT = quick-assignables.
+// Also provides a slot map for the 4x8 grid.
+function buildInventoryPanels(inventory) {
+  const display = buildInventoryDisplay(inventory);
+  const all = display.items || [];
+
+  const right = [];
+  const left = [];
+  for (const it of all) {
+    if (isQuickAssignableItem(it.item)) right.push(it);
+    else left.push(it);
+  }
+
+  const GRID_ROWS = 4;
+  const GRID_COLS = 8;
+  const GRID_SLOTS = GRID_ROWS * GRID_COLS;
+
+  // Slot indices by side in row-major grid:
+  // left: cols 0..3, right: cols 4..7
+  const leftSlots = [];
+  const rightSlots = [];
+  for (let slot = 0; slot < GRID_SLOTS; slot++) {
+    const col = slot % GRID_COLS;
+    if (col < 4) leftSlots.push(slot);
+    else rightSlots.push(slot);
+  }
+
+  const slotMap = Array(GRID_SLOTS).fill(null);
+  for (let i = 0; i < leftSlots.length; i++) slotMap[leftSlots[i]] = left[i] || null;
+  for (let i = 0; i < rightSlots.length; i++) slotMap[rightSlots[i]] = right[i] || null;
+
+  return {
+    display,
+    left,
+    right,
+    slotMap,
+    GRID_ROWS,
+    GRID_COLS,
+    GRID_SLOTS,
+    itemAt(slot) {
+      const s = slot | 0;
+      if (s < 0 || s >= GRID_SLOTS) return null;
+      return slotMap[s] || null;
+    },
   };
 }
 
@@ -625,6 +704,18 @@ hasSave(slot = null) {
   }
 }
 
+// A save is only "continuable" once the player has taken at least one step.
+// This prevents showing Continue immediately after starting a new game.
+hasContinuableSave(slot = null) {
+  try {
+    const s = slot ? slot : this._runtime.selectedSlot;
+    const m = this._readSlotMeta(s);
+    return !!m.exists && !m.corrupted && (typeof m.stepCount === "number") && m.stepCount > 0;
+  } catch {
+    return false;
+  }
+}
+
 _enterTitle() {
   // Stop movement and close overlays.
   this.state.keys = {};
@@ -664,7 +755,54 @@ _startNewGame(overwriteExisting) {
   this._runtime.fatalError = null;
   this._runtime.lastSaveHash = "";
   this._enterPlayFromLoaded();
-  // Immediately persist first state so Continue appears on next boot.
+
+  // Auto-drop into Elder introduction on first boot of a new game.
+  // (Diegetic tutorial + first tonic.)
+  try {
+    const s = this.state;
+    if (!s.flags) s.flags = {};
+    if (!s.flags.introElderAutoStarted) {
+      s.flags.introElderAutoStarted = true;
+
+      // Ensure Chapter 1 quest thread begins.
+      if (!s.quest?.progress?.q1_quarry_rescue?.started) {
+        this.startQuest("q1_quarry_rescue");
+      }
+      this.setObjectiveDone("q1_quarry_rescue", "talk_caretaker");
+      s.flags.chapter1_introStarted = true;
+
+      // Grant the first tonic once.
+      if (!s.flags.introFirstTonicGiven) {
+        s.flags.introFirstTonicGiven = true;
+        if (!Array.isArray(s.inventory)) s.inventory = [];
+        s.inventory.push({
+          id: "field_tonic",
+          name: "Field Tonic",
+          description: "Restores a bit of strength after a bad scrape.",
+          kind: "healing",
+          amount: 10,
+        });
+        try { this._playPickupSfx({ id: "field_tonic", name: "Field Tonic", kind: "consumable" }); } catch (_) {}
+        try { this._showToast("Received: Field Tonic"); } catch (_) {}
+      }
+
+      // Start the dialogue immediately.
+      if (!s.dialogue.isActive()) {
+        s.dialogue.startDialogue([
+          "Hi stranger — we found you in pretty bad shape out in the woods, so we brought you back to our town.",
+          "Ever since the Quarry Overseer to the north kept dropping pay, there’s hardly anyone who can afford to stay in Ironwood.",
+          "Maybe if someone were to deal with him, folks would start returning.",
+          "It looks like you’re in good shape now — but just in case, take this tonic with you.",
+          "Press I to open your inventory. Use the tonic when your health runs low.",
+          "If you’re heading north, talk with the watchman beforehand — press E next to him."
+        ]);
+      }
+    }
+  } catch (e) {
+    console.warn("[Intro] Failed to start Elder intro:", e);
+  }
+
+  // Persist first state (Continue is gated by step-count).
   this.saveGame();
 }
 
@@ -1041,10 +1179,44 @@ handleKeyDown(e) {
   if (key === "e" || key === "E") { e.preventDefault(); this.interact(); return true; }
 
   // Attack
-  if (key === "z" || key === "Z") { e.preventDefault(); this.attack(); return true; }
+  // Z / X: quick-slot use (default: Z=attack, X=shoot). While in Inventory, pressing Z/X assigns the selected item to that slot.
+  
+if (s.inventoryOpen && (key === "z" || key === "Z" || key === "x" || key === "X")) {
+  e.preventDefault();
+  const panels = buildInventoryPanels(s.inventory);
+  const slot = (s.inventoryIndex | 0);
+  const selected = panels.itemAt(slot);
+  const invItem = selected ? s.inventory[selected.invIndex] : null;
+
+  // Only RIGHT-panel items are assignable.
+  if (invItem && !isQuickAssignableItem(invItem)) {
+    this._showToast("That item cannot be equipped.");
+    return true;
+  }
+
+  const assignKey = (key === "z" || key === "Z") ? "Z" : "X";
+  if (assignKey === "Z") s.equipZ = invItem ? (invItem.id || null) : null;
+  else s.equipX = invItem ? (invItem.id || null) : null;
+
+  this._showToast(invItem ? `Assigned ${invItem.name || invItem.id} to ${assignKey}` : `Cleared ${assignKey}`);
+  return true;
+}
+
+  if (key === "z" || key === "Z") {
+    e.preventDefault();
+    if (s.equipZ) { this.useEquipped("Z"); return true; }
+    this.attack();
+    return true;
+  }
+
+  if (key === "x" || key === "X") {
+    e.preventDefault();
+    if (s.equipX) { this.useEquipped("X"); return true; }
+    this.shoot();
+    return true;
+  }
 
   // Shoot (requires pistol + bullets)
-  if (key === "x" || key === "X") { e.preventDefault(); this.shoot(); return true; }
 
   // Inventory toggle
   if (key === "i" || key === "I") {
@@ -1170,8 +1342,9 @@ handleKeyUp(e) {
 
 _getTitleMenuItems() {
   const items = [];
-  if (this.hasSave()) items.push({ id: "continue", label: "Continue" });
+  // New Game first. Continue only if at least one step has been recorded.
   items.push({ id: "new", label: "New Game" });
+  if (this.hasContinuableSave()) items.push({ id: "continue", label: "Continue" });
   items.push({ id: "settings", label: "Settings" });
   items.push({ id: "credits", label: "Credits" });
   return items;
@@ -1271,9 +1444,15 @@ _getPauseMenuItems() {
     const __items = Array.isArray(pressurePatched.items)
       ? pressurePatched.items.filter(it => !__picked[`${__mid}:${it.id}:${it.x},${it.y}`]).map(it => ({...it}))
       : pressurePatched.items;
+    const __spawnedRaw = (this.state.spawnedItemsByMap && this.state.spawnedItemsByMap[__mid]) ? this.state.spawnedItemsByMap[__mid] : [];
+    const __spawned = Array.isArray(__spawnedRaw)
+      ? __spawnedRaw.filter(it => !__picked[`${__mid}:${it.id}:${it.x},${it.y}`]).map(it => ({...it}))
+      : [];
+    const __allItems = Array.isArray(__items) ? [...__items, ...__spawned] : [...__spawned];
+
     return {
       ...pressurePatched,
-      items: __items,
+      items: __allItems,
       signs: signs.map(t => ({ x: t.x, y: t.y, lines: t.lines || [] })),
     };
   }
@@ -1538,34 +1717,67 @@ _getPauseMenuItems() {
     this.syncWorldMapCursorToCurrent();
   }
 
-
   // ----- Inventory pickup -----
   pickupItemAt(map, x, y) {
-    if (!map.items || !map.items.length) return;
+    if (!map) return;
 
-    const idx = map.items.findIndex(it => it.x === x && it.y === y);
+    const s = this.state;
+    const mid = map.id || s.currentMapId;
+
+    // Normal authored items live on the map; runtime drops (e.g., boss drops) live in spawnedItemsByMap.
+    const spawned = (s.spawnedItemsByMap && Array.isArray(s.spawnedItemsByMap[mid])) ? s.spawnedItemsByMap[mid] : [];
+
+    const findIn = (arr) => {
+      if (!Array.isArray(arr) || !arr.length) return -1;
+      return arr.findIndex(it => it && it.x === x && it.y === y);
+    };
+
+    let src = "map";
+    let idx = findIn(map.items);
+    if (idx === -1) {
+      idx = findIn(spawned);
+      src = "spawned";
+    }
     if (idx === -1) return;
 
-    const item = map.items[idx];
+    const item = (src === "map") ? map.items[idx] : spawned[idx];
 
     // Persist pickup so the item stays gone across reloads.
-    const mid = map.id || this.state.currentMapId;
-    if (!this.state.pickedItemKeys || typeof this.state.pickedItemKeys !== "object") {
-      this.state.pickedItemKeys = {};
+    if (!s.pickedItemKeys || typeof s.pickedItemKeys !== "object") s.pickedItemKeys = {};
+    s.pickedItemKeys[`${mid}:${item.id}:${item.x},${item.y}`] = true;
+
+    const removePicked = () => {
+      if (src === "map") map.items.splice(idx, 1);
+      else spawned.splice(idx, 1);
+    };
+
+    // Special: Heart Container is applied immediately (max HP increase) and does not occupy inventory.
+    if (item.id === "heart_container") {
+      removePicked();
+      this._showToast(`Got ${item.name || "Heart Piece"}.`, 1600);
+      if (this._sfxAssets) this._sfxAssets.playUI("pickup");
+      this._playPickupSfx(item);
+      this._grantDropItem("heart_container");
+      return;
     }
-    this.state.pickedItemKeys[`${mid}:${item.id}:${item.x},${item.y}`] = true;
 
-    this.state.inventory.push({
-      id: item.id,
-      name: item.name,
-      description: item.description,
-      kind: item.kind,
-      amount: item.amount,
-    });
+    // Standard inventory add (merge if stackable id already exists and has amount field).
+    if (!Array.isArray(s.inventory)) s.inventory = [];
+    const existing = s.inventory.find(it => it && it.id === item.id && typeof it.amount === "number");
+    if (existing && typeof item.amount === "number") {
+      existing.amount += item.amount;
+    } else {
+      s.inventory.push({
+        id: item.id,
+        name: item.name,
+        description: item.description,
+        kind: item.kind,
+        amount: item.amount,
+      });
+    }
 
-    map.items.splice(idx, 1);
+    removePicked();
 
-    // Pokémon-like pickup feedback: short toast + subtle SFX (no UI meters).
     const qty = (item.amount && item.amount > 1) ? ` x${item.amount}` : "";
     this._showToast(`Got ${item.name}${qty}.`, 1400);
     if (this._sfxAssets) this._sfxAssets.playUI("pickup");
@@ -1776,27 +1988,65 @@ shoot() {
 
 
 // ----- Inventory use -----
-  useSelectedItem() {
+  
+useSelectedItem() {
+  const s = this.state;
+  const panels = buildInventoryPanels(s.inventory);
+  if (!(panels.display && panels.display.count)) return;
+
+  // Cursor is over fixed slot grid (0..GRID_SLOTS-1). Empty slots do nothing.
+  const slot = (s.inventoryIndex | 0);
+  const selected = panels.itemAt(slot);
+  if (!selected) return;
+
+  const invIdx = selected?.invIndex ?? -1;
+  const item = (invIdx >= 0) ? s.inventory[invIdx] : null;
+  if (!item) return;
+
+  if (item.kind === "healing") {
+    s.player.hp = Math.min(s.player.maxHp, s.player.hp + item.amount);
+    s.message = `Used ${item.name}.`;
+    s.inventory.splice(invIdx, 1);
+
+    // Keep cursor stable; clamp into grid slots.
+    s.inventoryIndex = Math.max(0, Math.min(panels.GRID_SLOTS - 1, s.inventoryIndex | 0));
+  }
+}
+
+  // Use an equipped quick-slot item (Z/X). If the equipped item is a healing consumable, consume it.
+  // If it is a ranged weapon, fire; otherwise fall back to melee attack.
+  useEquipped(slotKey) {
     const s = this.state;
-    const display = buildInventoryDisplay(s.inventory);
-    if (!display.count) return;
-
-    const dIdx = Math.max(0, Math.min(display.count - 1, s.inventoryIndex | 0));
-    const selected = display.items[dIdx];
-    const invIdx = selected?.invIndex ?? -1;
-    const item = (invIdx >= 0) ? s.inventory[invIdx] : null;
-    if (!item) return;
-
-    if (item.kind === "healing") {
-      s.player.hp = Math.min(s.player.maxHp, s.player.hp + item.amount);
-      s.message = `Used ${item.name}.`;
-      s.inventory.splice(invIdx, 1);
-
-      const next = buildInventoryDisplay(s.inventory);
-      const n = Math.max(0, next.count);
-      if (n === 0) s.inventoryIndex = 0;
-      else s.inventoryIndex = Math.max(0, Math.min(n - 1, s.inventoryIndex));
+    const id = (slotKey === "Z") ? s.equipZ : s.equipX;
+    if (!id) {
+      if (slotKey === "X") this.shoot();
+      else this.attack();
+      return;
     }
+
+    const inv = Array.isArray(s.inventory) ? s.inventory : [];
+    const lower = String(id).toLowerCase();
+
+    // Weapons: preserve current combat semantics.
+    if (lower === "pistol" || lower === "rifle") { this.shoot(); return; }
+    if (lower === "saber" || lower === "scaber" || lower === "knife" || lower === "pickaxe") { this.attack(); return; }
+
+    // Consumables (currently: healing items use kind==="healing").
+    const idx = inv.findIndex(it => it && String(it.id).toLowerCase() === lower);
+    if (idx < 0) {
+      this._showToast("Not in inventory");
+      return;
+    }
+    const item = inv[idx];
+    if (item && item.kind === "healing") {
+      s.player.hp = Math.min(s.player.maxHp, s.player.hp + item.amount);
+      s.message = `Used ${item.name || item.id}.`;
+      inv.splice(idx, 1);
+      this._showToast(`Used ${item.name || item.id}`);
+      return;
+    }
+
+    this._showToast("Can't use");
   }
 
   // ----- Movement -----
@@ -2235,7 +2485,87 @@ _handleEnemyDeath(e, arch) {
   e.dead = true;
   e.state = "dead";
 
-  // Drops: simple percent rolls into inventory.
+  // Drops: bosses can optionally spawn physical drops on the ground.
+  const archId = String(e.archetypeId || "");
+  const mapIdForDrop = this.state.currentMapId;
+
+  // Special: Quarry Overseer drops a Heart Piece + Pistol on the ground (pickup by walking over).
+  if (archId === "quarry_overseer") {
+    if (!this.state.spawnedItemsByMap || typeof this.state.spawnedItemsByMap !== "object") this.state.spawnedItemsByMap = {};
+    if (!Array.isArray(this.state.spawnedItemsByMap[mapIdForDrop])) this.state.spawnedItemsByMap[mapIdForDrop] = [];
+    const spawned = this.state.spawnedItemsByMap[mapIdForDrop];
+
+    const mapForDrop = this.currentMap;
+    const isOpen = (x, y) => {
+      if (!mapForDrop) return false;
+      if (!this._isWalkableForEnemy(mapForDrop, x, y)) return false;
+      // Avoid stacking on existing spawned drops at same tile
+      if (spawned.some(it => it.x === x && it.y === y)) return false;
+      return true;
+    };
+
+    const candidates = [
+      { x: e.x, y: e.y },
+      { x: e.x + 1, y: e.y },
+      { x: e.x - 1, y: e.y },
+      { x: e.x, y: e.y + 1 },
+      { x: e.x, y: e.y - 1 },
+      { x: e.x + 1, y: e.y + 1 },
+      { x: e.x - 1, y: e.y + 1 },
+      { x: e.x + 1, y: e.y - 1 },
+      { x: e.x - 1, y: e.y - 1 },
+    ];
+
+    const placeNext = () => {
+      for (const c of candidates) if (isOpen(c.x, c.y)) return { x: c.x, y: c.y };
+      return { x: e.x, y: e.y };
+    };
+
+    const p1 = placeNext();
+    spawned.push({
+      id: "heart_container",
+      name: "Heart Piece",
+      description: "A warm pulse in your palm. Increases your maximum health.",
+      kind: "relic",
+      amount: 1,
+      x: p1.x,
+      y: p1.y,
+    });
+
+    const p2 = placeNext();
+    // Ensure pistol doesn't overlap the heart piece.
+    if (p2.x === p1.x && p2.y === p1.y) {
+      const alt = candidates.find(c => (c.x !== p1.x || c.y !== p1.y) && isOpen(c.x, c.y));
+      if (alt) { p2.x = alt.x; p2.y = alt.y; }
+    }
+    spawned.push({
+      id: "pistol",
+      name: "Pistol",
+      description: "A compact sidearm. Assign to X for quick shots.",
+      kind: "weapon",
+      amount: 1,
+      x: p2.x,
+      y: p2.y,
+    });
+
+
+    // Grant any OTHER drops immediately (coins/scripts), but keep Heart Piece + Pistol as physical pickups.
+    const drops = arch?.drops || [];
+    for (const d of drops) {
+      const did = String(d.id || "");
+      if (did === "heart_container" || did === "pistol") continue;
+      const roll = Math.random();
+      if (roll <= (d.chance ?? 0)) {
+        const qtyMin = d.min ?? 1;
+        const qtyMax = d.max ?? qtyMin;
+        const qty = qtyMin + Math.floor(Math.random() * (qtyMax - qtyMin + 1));
+        for (let i = 0; i < qty; i++) this._grantDropItem(did);
+      }
+    }
+
+    try { this._showToast("Drops fell to the ground.", 1200); } catch (_) {}
+  } else {
+// Drops: simple percent rolls into inventory.
   const drops = arch?.drops || [];
   for (const d of drops) {
     const roll = Math.random();
@@ -2247,6 +2577,8 @@ _handleEnemyDeath(e, arch) {
         this._grantDropItem(d.id);
       }
     }
+  }
+
   }
 
   // Optional onDeath hooks for bosses/quests.
@@ -2515,8 +2847,13 @@ _updateEnemies(dt) {
 
     // Toast timer should tick even when menus are open.
     if (s.toast && s.toast.ms > 0) {
-      s.toast.ms = Math.max(0, s.toast.ms - dt);
-      if (s.toast.ms === 0) s.toast.text = "";
+      // Do not let toasts expire while dialogue/menu overlays are active;
+      // otherwise pickup toasts triggered during dialogue would never be seen.
+      const hold = s.dialogue?.isActive?.() || s.inventoryOpen || s.worldMapOpen || s.quest?.logOpen;
+      if (!hold) {
+        s.toast.ms = Math.max(0, s.toast.ms - dt);
+        if (s.toast.ms === 0) s.toast.text = "";
+      }
     }
 
     // Keep validations current and prevent hard crashes on bad content.
@@ -2579,25 +2916,42 @@ if (s.worldMapOpen) {
   return;
 }
 
-// Inventory open: up/down move selection
+// Inventory open: grid navigation (Link's Awakening–style layout)
+// Arrows move a cursor across a fixed grid of slots; empty slots are selectable but do nothing.
 if (s.inventoryOpen) {
-  const display = buildInventoryDisplay(s.inventory);
-  const n = Math.max(1, display.count);
+  const panels = buildInventoryPanels(s.inventory);
 
-  // Clamp (handles older saves where index could be out of range)
-  if (s.inventoryIndex < 0) s.inventoryIndex = 0;
-  if (s.inventoryIndex >= n) s.inventoryIndex = n - 1;
+  const GRID_ROWS = panels.GRID_ROWS;
+  const GRID_COLS = panels.GRID_COLS; // 4 left + 4 right
+  const GRID_SLOTS = panels.GRID_SLOTS;
+
+  // Cursor lives in slot-space (0..GRID_SLOTS-1), not item-count space.
+  if (!Number.isFinite(s.inventoryIndex)) s.inventoryIndex = 0;
+  s.inventoryIndex = Math.max(0, Math.min(GRID_SLOTS - 1, s.inventoryIndex | 0));
+
+  const move = (d) => {
+    const next = (s.inventoryIndex + d + GRID_SLOTS) % GRID_SLOTS;
+    s.inventoryIndex = next;
+  };
 
   if (s.keys["ArrowUp"]) {
     s.keys["ArrowUp"] = false;
-    s.inventoryIndex = (s.inventoryIndex - 1 + n) % n;
+    move(-GRID_COLS);
   } else if (s.keys["ArrowDown"]) {
     s.keys["ArrowDown"] = false;
-    s.inventoryIndex = (s.inventoryIndex + 1) % n;
+    move(GRID_COLS);
+  } else if (s.keys["ArrowLeft"]) {
+    s.keys["ArrowLeft"] = false;
+    move(-1);
+  } else if (s.keys["ArrowRight"]) {
+    s.keys["ArrowRight"] = false;
+    move(1);
   }
+
   this._autosave(dt);
   return;
 }
+
 
 // Quest log open: up/down move selection
 if (s.quest?.logOpen) {
@@ -3488,8 +3842,12 @@ if (s.ui?.screen && s.ui.screen !== "play") {
       }
     }
 
-    // Items
-    (map.items || []).forEach(it => {
+    // Items (authored + runtime spawned drops)
+    const mapIdForItems = map.id || s.currentMapId;
+    const spawnedItems = (s.spawnedItemsByMap && Array.isArray(s.spawnedItemsByMap[mapIdForItems])) ? s.spawnedItemsByMap[mapIdForItems] : [];
+    const allItems = [...(map.items || []), ...spawnedItems];
+
+    allItems.forEach(it => {
       if (
         it.x < cam.x ||
         it.y < cam.y ||
@@ -3514,6 +3872,7 @@ if (s.ui?.screen && s.ui.screen !== "play") {
         ctx.fillRect(px + 4, py + 4, TILE_SIZE - 8, TILE_SIZE - 8);
       }
     });
+
 
 // Projectiles (runtime-only)
 (s.projectiles || []).forEach(p => {
@@ -3654,26 +4013,179 @@ if (s.ui?.screen && s.ui.screen !== "play") {
       ctx.strokeRect(px + 4, py + 4, TILE_SIZE - 8, TILE_SIZE - 8);
     }
 
-    // HUD (high contrast strip; outlined text for legibility on bright tiles)
-    ctx.fillStyle = "rgba(10,10,10,0.92)";
-    ctx.fillRect(0, 0, this.canvas.width, 24);
+    // Bottom Status Bar (Link's Awakening–style)
+    const HUD_H = 44;
+    const hudY = this.canvas.height - HUD_H;
 
-    const hudText = (text, x, y, fill = "#ffffff") => {
-      ctx.save();
-      ctx.font = "bold 12px monospace";
-      ctx.textBaseline = "middle";
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = "rgba(0,0,0,0.85)";
-      ctx.strokeText(text, x, y);
-      ctx.fillStyle = fill;
-      ctx.fillText(text, x, y);
-      ctx.restore();
+    // Coin total is derived from inventory coin items (small_coin=1, coin_bundle=5).
+    const coinTotal = (inv) => {
+      const arr = Array.isArray(inv) ? inv : [];
+      let sum = 0;
+      for (const it of arr) {
+        const id = String(it?.id || "").toLowerCase();
+        if (id === "small_coin") sum += 1;
+        else if (id === "coin_bundle") sum += 5;
+      }
+      return sum;
     };
 
-    hudText(`Map: ${map.label}`, 8, 12);
-    hudText(`HP: ${s.player.hp}/${s.player.maxHp}`, 160, 12);
-    hudText(`Pos: (${s.player.x}, ${s.player.y})`, 280, 12);
-    if (s.message) hudText(s.message, 420, 12, "#ffdd55");
+    const drawHeart = (x, y, q) => {
+      // q: 0..4 quarters
+      const s2 = 2; // pixel scale for heart
+      const px = (ix, iy) => ctx.fillRect(x + ix * s2, y + iy * s2, s2, s2);
+
+      // Heart shape mask (7x6)
+      const mask = [
+        "0110110",
+        "1111111",
+        "1111111",
+        "0111110",
+        "0011100",
+        "0001000",
+      ];
+
+      // Outline
+      ctx.fillStyle = "rgb(20, 32, 20)";
+      for (let iy = 0; iy < mask.length; iy++) {
+        for (let ix = 0; ix < mask[iy].length; ix++) {
+          if (mask[iy][ix] === "1") px(ix, iy);
+        }
+      }
+
+      // Inner fill: draw full heart as "empty" grey, then overlay "health" red by quarter.
+      // This makes damage state visually unambiguous.
+      const inner = [
+        "0010100",
+        "0111110",
+        "0111110",
+        "0011100",
+        "0001000",
+        "0000000",
+      ];
+
+      // Empty (grey)
+      ctx.fillStyle = "rgb(150, 150, 150)";
+      for (let iy = 0; iy < inner.length; iy++) {
+        for (let ix = 0; ix < inner[iy].length; ix++) {
+          if (inner[iy][ix] === "1") px(ix, iy);
+        }
+      }
+
+      // Health (red), left-to-right proportional by quarter
+      if (q > 0) {
+        ctx.fillStyle = "rgb(200, 40, 40)";
+        const fillCols = Math.min(7, Math.max(0, Math.round((q / 4) * 7)));
+        for (let iy = 0; iy < inner.length; iy++) {
+          for (let ix = 0; ix < inner[iy].length; ix++) {
+            if (ix < fillCols && inner[iy][ix] === "1") px(ix, iy);
+          }
+        }
+      }
+    };
+
+    // Panel
+    ctx.save();
+    ctx.fillStyle = "rgb(202, 214, 170)";
+    ctx.fillRect(0, hudY, this.canvas.width, HUD_H);
+    ctx.strokeStyle = "rgb(26, 44, 26)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, hudY + 1);
+    ctx.lineTo(this.canvas.width, hudY + 1);
+    ctx.stroke();
+
+    // Item slots (Z / X)
+    const slotSize = 30;
+    const slotPad = 8;
+    const slotY = hudY + 7;
+    const zX = slotPad;
+    const xX = slotPad + slotSize + 10;
+
+    const drawSlot = (sx, label, itemId) => {
+      ctx.fillStyle = "rgba(255,255,255,0.28)";
+      ctx.fillRect(sx, slotY, slotSize, slotSize);
+      ctx.strokeStyle = "rgb(26, 44, 26)";
+      ctx.strokeRect(sx + 0.5, slotY + 0.5, slotSize - 1, slotSize - 1);
+
+      // Label
+      ctx.fillStyle = "rgb(20, 32, 20)";
+      ctx.font = "bold 10px monospace";
+      ctx.textBaseline = "top";
+      ctx.fillText(label, sx + 3, slotY + slotSize - 12);
+
+      // Icon
+      const iconSheet = this.assets.sprites.items;
+      const hasIcons = !!(iconSheet && iconSheet.complete && iconSheet.naturalWidth);
+      if (hasIcons) {
+        const cols = Math.max(1, Math.floor((iconSheet.naturalWidth || iconSheet.width) / 16));
+        const iidx = getItemIconIndex(itemId);
+        const isx = (iidx % cols) * 16;
+        const isy = Math.floor(iidx / cols) * 16;
+        const dx = sx + Math.floor((slotSize - 16) / 2);
+        const dy = slotY + 4;
+        ctx.drawImage(iconSheet, isx, isy, 16, 16, dx, dy, 16, 16);
+      }
+    };
+
+    const zId = s.equipZ || "saber";
+    const xId = s.equipX || "pistol";
+    drawSlot(zX, "Z", zId);
+    drawSlot(xX, "X", xId);
+
+    // Coins (center)
+    const coins = coinTotal(s.inventory);
+    ctx.font = "bold 14px monospace";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "rgb(20, 32, 20)";
+    const coinText = String(coins);
+    const tw = ctx.measureText(coinText).width;
+    const coinIconW = 16;
+    const centerX = Math.floor(this.canvas.width / 2);
+    const coinY = hudY + Math.floor(HUD_H / 2);
+
+    // Coin icon
+    {
+      const iconSheet = this.assets.sprites.items;
+      const hasIcons = !!(iconSheet && iconSheet.complete && iconSheet.naturalWidth);
+      if (hasIcons) {
+        const cols = Math.max(1, Math.floor((iconSheet.naturalWidth || iconSheet.width) / 16));
+        const iidx = getItemIconIndex("small_coin");
+        const isx = (iidx % cols) * 16;
+        const isy = Math.floor(iidx / cols) * 16;
+        ctx.drawImage(iconSheet, isx, isy, 16, 16, centerX - Math.floor((coinIconW + 6 + tw) / 2), coinY - 8, 16, 16);
+      }
+    }
+    ctx.fillText(coinText, centerX - Math.floor(tw / 2) + 10, coinY + 1);
+
+    // Hearts (right)
+    const maxHearts = Math.max(1, Math.ceil((s.player.maxHp || 0) / 4));
+    const hp = Math.max(0, Math.min(s.player.maxHp || 0, s.player.hp || 0));
+    const heartW = 14;
+    const heartStartX = this.canvas.width - 10 - (maxHearts * heartW);
+    const heartY = hudY + 12;
+    for (let i = 0; i < maxHearts; i++) {
+      const q = Math.max(0, Math.min(4, hp - i * 4));
+      drawHeart(heartStartX + i * heartW, heartY, q);
+    }
+
+    ctx.restore();
+
+    // Message line (small, above HUD) — preserved for now
+    if (s.message) {
+      ctx.save();
+      ctx.font = "12px monospace";
+      ctx.textBaseline = "bottom";
+      ctx.fillStyle = "rgba(0,0,0,0.65)";
+      const pad = 6;
+      const msg = String(s.message);
+      const mw = Math.min(this.canvas.width - 12, Math.floor(ctx.measureText(msg).width) + pad * 2);
+      const mx = 6;
+      const my = hudY - 6;
+      ctx.fillRect(mx, my - 18, mw, 18);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillText(msg, mx + pad, my - 4);
+      ctx.restore();
+    }
 
     // Toast: short pickup feedback (only during play, and never over dialogue)
     if (
@@ -3693,7 +4205,7 @@ if (s.ui?.screen && s.ui.screen !== "play") {
       const w = Math.min(420, Math.max(120, ctx.measureText(text).width + pad * 2));
       const h = 22;
       const x = Math.floor((this.canvas.width - w) / 2);
-      const y = this.canvas.height - h - 8;
+      const y = (this.canvas.height - HUD_H) - h - 6;
       ctx.fillStyle = "rgba(12,12,12,0.88)";
       ctx.fillRect(x, y, w, h);
       ctx.strokeStyle = "rgba(240,236,220,0.9)";
@@ -3703,182 +4215,190 @@ if (s.ui?.screen && s.ui.screen !== "play") {
       ctx.restore();
     }
 
-    // Inventory UI
+
+    // Inventory UI (full-screen, Link's Awakening–inspired)
     if (s.inventoryOpen) {
       const ctx = this.ctx;
-      const display = buildInventoryDisplay(s.inventory);
+      const panels = buildInventoryPanels(s.inventory);
 
-      // Size + placement (clamped to viewport)
-      const padOuter = 14;
-      const boxW = Math.min(360, this.canvas.width - padOuter * 2);
-      const boxH = Math.min(230, this.canvas.height - 60);
-      const x = Math.floor((this.canvas.width - boxW) / 2);
-      const y = 28;
+      const W = this.canvas.width;
+      // Leave the bottom HUD visible while the inventory is open.
+      const H = this.canvas.height - HUD_H;
 
-      // Panel background (SOLID — removes the “grid” look from the UI panel sprite)
+      // Panel frame
+      const margin = 6;
+      const x = margin;
+      const y = margin;
+      const w = W - margin * 2;
+      const h = H - margin * 2;
+
       ctx.save();
-      ctx.fillStyle = "rgba(0,0,0,0.88)";
-      ctx.fillRect(x, y, boxW, boxH);
-      ctx.strokeStyle = "rgba(240,236,220,0.95)";
+
+      // Opaque Game Boy–style fill (keeps world calm and unreadable behind UI)
+      ctx.fillStyle = "rgb(202, 214, 170)";
+      ctx.fillRect(x, y, w, h);
+
+      // Outer border
+      ctx.strokeStyle = "rgba(15, 30, 15, 0.95)";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+
+      // Inner border
+      ctx.strokeStyle = "rgba(15, 30, 15, 0.35)";
       ctx.lineWidth = 1;
-      ctx.strokeRect(x + 1, y + 1, boxW - 2, boxH - 2);
-      // Subtle inner border
-      ctx.strokeStyle = "rgba(255,255,255,0.10)";
-      ctx.strokeRect(x + 2, y + 2, boxW - 4, boxH - 4);
-      ctx.restore();
-
-      // Typography (high contrast + slight shadow for readability)
-      ctx.save();
-      ctx.textBaseline = "top";
-      ctx.shadowColor = "rgba(0,0,0,0.85)";
-      ctx.shadowBlur = 2;
-      ctx.shadowOffsetX = 1;
-      ctx.shadowOffsetY = 1;
-
-      const pad = 12;
-      const headerH = 22;
-      const footerH = 62;
-      const listX = x + pad;
-      const listY = y + headerH + 10;
-      const listW = boxW - pad * 2;
-      const listH = boxH - headerH - footerH - 14;
+      ctx.strokeRect(x + 4, y + 4, w - 8, h - 8);
 
       // Header
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "14px monospace";
-      ctx.fillText("Inventory", x + pad, y + 8);
+      ctx.fillStyle = "rgba(15, 30, 15, 0.95)";
+      ctx.font = "bold 12px monospace";
+      ctx.textBaseline = "top";
+      const title = "INVENTORY";
+      const tw = ctx.measureText(title).width;
+      ctx.fillText(title, x + Math.floor((w - tw) / 2), y + 8);
 
-      ctx.font = "11px monospace";
-      const hint = "Esc: Close   ↑/↓: Select   Enter: Use";
-      ctx.fillStyle = "rgba(255,255,255,0.85)";
-      ctx.fillText(hint, x + pad, y + 8 + 14);
+      // Divider (dotted)
+const divX = x + Math.floor(w / 2);
+ctx.fillStyle = "rgba(15, 30, 15, 0.55)";
+for (let yy = y + 24; yy < y + h - 56; yy += 6) {
+  ctx.fillRect(divX, yy, 1, 3);
+}
 
-      // Column labels
-      ctx.fillStyle = "rgba(255,255,255,0.70)";
-      ctx.font = "10px monospace";
-      ctx.fillText("CAT", listX, listY - 12);
-      ctx.fillText("ITEM", listX + 36, listY - 12);
-      ctx.fillText("QTY", x + boxW - pad - 26, listY - 12);
+// Panel labels
+ctx.font = "11px monospace";
+ctx.fillStyle = "rgba(15, 30, 15, 0.80)";
+ctx.fillText("PACK", x + 18, y + 22);
+const equipLabel = "EQUIP (Z/X)";
+const elw = ctx.measureText(equipLabel).width;
+ctx.fillText(equipLabel, divX + 18, y + 22);
 
-      // Clamp selection index for older saves
-      const n = display.count;
-      if (n === 0) {
-        ctx.fillStyle = "rgba(255,255,255,0.85)";
-        ctx.font = "12px monospace";
-        ctx.fillText("(empty)", listX, listY + 8);
-      } else {
-        if (s.inventoryIndex < 0) s.inventoryIndex = 0;
-        if (s.inventoryIndex >= n) s.inventoryIndex = n - 1;
 
-        // Keep selection visible (runtime-only scroll)
-        const rowH = 14;
-        const rowsPerPage = Math.max(1, Math.floor(listH / rowH));
-        if (this._runtime.invScroll == null) this._runtime.invScroll = 0;
-        let scroll = this._runtime.invScroll | 0;
-        if (s.inventoryIndex < scroll) scroll = s.inventoryIndex;
-        if (s.inventoryIndex >= scroll + rowsPerPage) scroll = s.inventoryIndex - rowsPerPage + 1;
-        scroll = Math.max(0, Math.min(Math.max(0, n - rowsPerPage), scroll));
-        this._runtime.invScroll = scroll;
+      // Grid
+      const GRID_ROWS = 4;
+      const GRID_COLS = 8; // 4 left + 4 right
+      const GRID_SLOTS = GRID_ROWS * GRID_COLS;
 
-        // Subtle list backdrop for contrast (helps on bright maps)
-        ctx.shadowBlur = 0;
-        ctx.shadowOffsetX = 0;
-        ctx.shadowOffsetY = 0;
-        ctx.fillStyle = "rgba(0,0,0,0.18)";
-        ctx.fillRect(listX - 4, listY - 2, listW + 8, rowsPerPage * rowH + 6);
+      const cell = 28; // larger slots for clearer icons
+      const gridTop = y + 28;
+      const leftX = x + 16;
+      const rightX = divX + 16;
 
-        // Render rows
-        ctx.shadowColor = "rgba(0,0,0,0.85)";
-        ctx.shadowBlur = 2;
-        ctx.shadowOffsetX = 1;
-        ctx.shadowOffsetY = 1;
+      // Slot base styling
+      const slotFill = "rgba(255,255,255,0.10)";
+      const slotStroke = "rgba(15, 30, 15, 0.22)";
+      const slotStrokeStrong = "rgba(15, 30, 15, 0.70)";
+      const slotSelFill = "rgba(255,255,255,0.22)";
 
-        const end = Math.min(n, scroll + rowsPerPage);
-        let lastCat = null;
-        for (let i = scroll; i < end; i++) {
-          const row = display.items[i];
-          const rowY = listY + (i - scroll) * rowH;
+      // Clamp cursor to grid
+      if (!Number.isFinite(s.inventoryIndex)) s.inventoryIndex = 0;
+      s.inventoryIndex = Math.max(0, Math.min(GRID_SLOTS - 1, s.inventoryIndex | 0));
 
-          // Grouping separator when category changes (presentation only)
-          if (lastCat && row.cat !== lastCat) {
-            ctx.shadowBlur = 0;
-            ctx.fillStyle = "rgba(255,255,255,0.25)";
-            ctx.fillRect(listX - 4, rowY - 6, listW + 8, 1);
-            ctx.shadowBlur = 2;
-          }
-          lastCat = row.cat;
+      const iconSheet = this.assets.sprites.items;
+      const hasIcons = !!(iconSheet && iconSheet.complete && iconSheet.naturalWidth);
+      const cols = hasIcons ? Math.max(1, Math.floor((iconSheet.naturalWidth || iconSheet.width) / 16)) : 1;
 
-          const selected = (i === s.inventoryIndex);
+      for (let slot = 0; slot < GRID_SLOTS; slot++) {
+        const row = Math.floor(slot / GRID_COLS);
+        let col = slot % GRID_COLS;
 
-          // Selection highlight
-          if (selected) {
-            ctx.shadowBlur = 0;
-            ctx.fillStyle = "rgba(255,221,85,0.20)";
-            ctx.fillRect(listX - 4, rowY - 1, listW + 8, rowH + 2);
-            ctx.shadowBlur = 2;
-          }
+        const isRight = col >= 4;
+        const baseX = isRight ? rightX : leftX;
+        col = isRight ? (col - 4) : col;
 
-          // Category + item name
-          ctx.fillStyle = selected ? "#ffdd55" : "rgba(255,255,255,0.90)";
-          ctx.font = "12px monospace";
-          ctx.fillText(row.abbr, listX, rowY);
+        const sx = baseX + col * cell;
+        const sy = gridTop + row * cell;
 
-          // Icon (uses the same items sheet as ground pickups)
-          const iconSheet2 = this.assets.sprites.items;
-          const hasIcons2 = !!(iconSheet2 && iconSheet2.complete && iconSheet2.naturalWidth);
-          if (hasIcons2) {
-            const cols2 = Math.max(1, Math.floor((iconSheet2.naturalWidth || iconSheet2.width) / 16));
-            const iid = (row.item?.id || "").toLowerCase();
+        const selected = (slot === (s.inventoryIndex | 0));
+
+        // Slot background
+        ctx.fillStyle = selected ? slotSelFill : slotFill;
+        ctx.fillRect(sx, sy, cell - 2, cell - 2);
+
+        // Slot border
+        ctx.strokeStyle = selected ? slotStrokeStrong : slotStroke;
+        ctx.lineWidth = selected ? 2 : 1;
+        ctx.strokeRect(sx, sy, cell - 2, cell - 2);
+
+        // Item icon (if any)
+        const rowItem = panels.itemAt(slot);
+        if (rowItem) {
+          
+          const iid = (rowItem.item?.id || "").toLowerCase();
+
+          if (hasIcons) {
             const iidx = getItemIconIndex(iid);
-            const isx = (iidx % cols2) * 16;
-            const isy = Math.floor(iidx / cols2) * 16;
-            // 12x12 icon aligned to row
-            ctx.drawImage(iconSheet2, isx, isy, 16, 16, listX + 18, rowY - 11, 12, 12);
+            const isx = (iidx % cols) * 16;
+            const isy = Math.floor(iidx / cols) * 16;
+            const iconSize = Math.max(16, cell - 8);
+            const dx = sx + Math.floor((cell - 2 - iconSize) / 2);
+            const dy = sy + Math.floor((cell - 2 - iconSize) / 2);
+            ctx.drawImage(iconSheet, isx, isy, 16, 16, dx, dy, iconSize, iconSize);
+          } else {
+            // Fallback marker
+            ctx.fillStyle = "rgba(15, 30, 15, 0.65)";
+            ctx.fillRect(sx + 6, sy + 6, 8, 8);
           }
 
-          ctx.fillStyle = selected ? "#ffffff" : "rgba(255,255,255,0.90)";
-          const name = row.name;
-          ctx.fillText(name, listX + 36, rowY);
-
-          // Qty (right aligned)
-          const qty = String(row.item?.amount ?? 1);
-          const qx = x + boxW - pad - ctx.measureText(qty).width;
-          ctx.fillStyle = "rgba(255,255,255,0.80)";
-          ctx.fillText(qty, qx, rowY);
-        }
-
-        // Footer: selected item details
-        const cur = display.items[s.inventoryIndex];
-        if (cur) {
-          const footerY = y + boxH - footerH + 10;
-          ctx.shadowBlur = 0;
-          ctx.fillStyle = "rgba(0,0,0,0.25)";
-          ctx.fillRect(x + pad - 4, footerY - 6, boxW - pad * 2 + 8, footerH - 14);
-          ctx.shadowColor = "rgba(0,0,0,0.85)";
-          ctx.shadowBlur = 2;
-          ctx.shadowOffsetX = 1;
-          ctx.shadowOffsetY = 1;
-
-          ctx.font = "11px monospace";
-          ctx.fillStyle = "rgba(255,255,255,0.75)";
-          ctx.fillText(`${cur.cat} — ${cur.name}`, x + pad, footerY - 2);
-
-          ctx.font = "12px monospace";
-          ctx.fillStyle = "rgba(255,255,255,0.92)";
-          const descLines = _wrapLines(cur.desc, boxW - pad * 2, ctx).slice(0, 3);
-          let dy = footerY + 12;
-          for (const dl of descLines) {
-            ctx.fillText(dl, x + pad, dy);
-            dy += 14;
+          // Qty (small, top-right)
+          const qty = String(rowItem.item?.amount ?? 1);
+          if (qty !== "1") {
+            ctx.font = "10px monospace";
+            ctx.textBaseline = "top";
+            ctx.fillStyle = "rgba(15, 30, 15, 0.90)";
+            const qW = ctx.measureText(qty).width;
+            ctx.fillText(qty, sx + (cell - 4) - qW, sy + 2);
           }
+
+          // Category / quick-assign hint
+          ctx.font = "10px monospace";
+          ctx.textBaseline = "alphabetic";
+          ctx.fillStyle = "rgba(15, 30, 15, 0.70)";
+          const tag = ((slot % 8) >= 4) ? "EQ" : rowItem.abbr;
+          ctx.fillText(tag, sx + 3, sy + (cell - 6));
         }
       }
+
+      // Bottom info strip
+      const infoH = 46;
+      const infoY = y + h - infoH - 6;
+      ctx.fillStyle = "rgba(255,255,255,0.14)";
+      ctx.fillRect(x + 10, infoY, w - 20, infoH);
+
+      ctx.strokeStyle = "rgba(15, 30, 15, 0.35)";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x + 10, infoY, w - 20, infoH);
+
+      const slot = (s.inventoryIndex | 0);
+      const cur = panels.itemAt(slot);
+
+      ctx.fillStyle = "rgba(15, 30, 15, 0.95)";
+      ctx.textBaseline = "top";
+      if (cur) {
+        ctx.font = "bold 12px monospace";
+        ctx.fillText(cur.name.toUpperCase(), x + 16, infoY + 6);
+
+        ctx.font = "11px monospace";
+        const descLines = _wrapLines(cur.desc, w - 40, ctx).slice(0, 2);
+        let dy = infoY + 22;
+        for (const dl of descLines) {
+          ctx.fillText(dl, x + 16, dy);
+          dy += 12;
+        }
+      } else {
+        ctx.font = "11px monospace";
+        ctx.fillText("(empty)", x + 16, infoY + 12);
+      }
+
+      // Controls hint
+      ctx.font = "10px monospace";
+      ctx.fillStyle = "rgba(15, 30, 15, 0.70)";
+      const hint = "ESC: CLOSE   ARROWS: MOVE   ENTER: USE   Z/X: ASSIGN (RIGHT)";
+      ctx.fillText(hint, x + 16, y + h - 18);
 
       ctx.restore();
     }
 
     // Dialogue UI
-    s.dialogue.render(ctx, this.canvas.width, this.canvas.height);
+    s.dialogue.render(ctx, this.canvas.width, this.canvas.height - HUD_H);
 
     // Developer overlay (off by default)
     if (this._runtime.debugEnabled && this._runtime.debugOverlay) {

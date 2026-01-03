@@ -226,12 +226,14 @@ if ((x === 17 && y === 2) || (x === 9 && y === 21) || (x === 12 && y === 9)) ret
           }
 
           if (state.flags.quarryCleared) {
-            // AFTER quarry boss
+            // AFTER quarry boss (Checkpoint 1 complete)
             return [
               "So it’s done. The stone is quiet again.",
               "Tell me straight—are the crews alive?",
-              "Good. Then we can move. Shed opens. Names go back on the board.",
-              "You did the work. Now take the word where it belongs."
+              "Good. Then we can move. Names go back on the board.",
+              "You did the work.",
+              "Take this map — it’ll help you find your way beyond Ironwood.",
+              "Press M anytime to open it."
             ];
           } else {
             // BEFORE quarry boss
@@ -250,6 +252,58 @@ if ((x === 17 && y === 2) || (x === 9 && y === 21) || (x === 12 && y === 9)) ret
           }
         }
       }
+      ,
+      {
+        id: "watchman_north",
+        // Placed beside the north exit so the player naturally meets him before leaving.
+        x: 14,
+        y: 2,
+        spriteIndex: 1,
+
+        onInteract(state, game) {
+          state.flags = state.flags || {};
+          if (state.flags.watchmanKnifeGiven) return;
+
+          // Grant knife on first interaction, but ensure the dialogue clearly communicates the handoff.
+          state.flags.watchmanKnifeGiven = true;
+          state.flags.watchmanKnifeJustGranted = true;
+
+          if (!Array.isArray(state.inventory)) state.inventory = [];
+          state.inventory.push({
+            id: "knife",
+            name: "Knife",
+            description: "A working knife for close work.",
+            kind: "weapon",
+            amount: 1,
+          });
+
+          try { game._playPickupSfx({ id: "knife", name: "Knife", kind: "weapon" }); } catch (_) {}
+          try { game._showToast("Received: Knife"); } catch (_) {}
+        },
+
+        dialogue(state, game) {
+          if (state.flags?.watchmanKnifeJustGranted) {
+            state.flags.watchmanKnifeJustGranted = false;
+            return [
+              "Hold up.",
+              "I’m giving you a knife — a real edge, not a toy.",
+              "Take it. If something rushes you in the brush, you’ll have a chance."
+            ];
+          }
+
+          if (state.flags?.watchmanKnifeGiven) {
+            return [
+              "Keep your head up on the road.",
+              "North routes have eyes in the brush. Don’t swing first unless you must."
+            ];
+          }
+
+          return [
+            "Hold up.",
+            "It’s dangerous out there. You’ll need this."
+          ];
+        }
+      }
     ],
     exits: [
       { x: 15, y: 1, to: "route_ironwood_town_to_upper_forest_camp", spawnX: 11, spawnY: 16 },
@@ -263,17 +317,8 @@ if ((x === 17 && y === 2) || (x === 9 && y === 21) || (x === 12 && y === 9)) ret
       { x: 23, y: 12, to: "ironwood_supply_shed", spawnX: 7, spawnY: 9 },
       { x: 23, y: 18, to: "ironwood_inn", spawnX: 7, spawnY: 9 },
 ],
-    items: [
-      {
-        id: "field_tonic",
-        x: 11,
-        y: 10,
-        name: "Field Tonic",
-        description: "Restores a bit of strength after a bad scrape.",
-        kind: "healing",
-        amount: 10
-      }
-    ],
+    // The first tonic is granted by the Elder intro (diegetic tutorial).
+    items: [],
     triggers: [
       {
         type: "sign",
@@ -523,17 +568,8 @@ if ((Math.abs(x - 16) + Math.abs(y - 8) <= 1) || (Math.abs(x - 9) + Math.abs(y -
       { x: 16, y: 8, to: "route_quarry_entrance_to_upper_forest_camp", spawnX: 1, spawnY: 9 },
       { x: 9, y: 14, to: "quarry_floor1", spawnX: 9, spawnY: 2 }
     ],
-    items: [
-      {
-        id: "knife",
-        x: 6,
-        y: 9,
-        name: "Knife",
-        description: "A working knife left in the dust. Improves melee damage.",
-        kind: "weapon",
-        amount: 1
-      }
-    ],
+    // Knife is now granted by the North Watchman in Ironwood Town.
+    items: [],
     triggers: [
       {
         id: "boss_intro_quarry_overseer",
